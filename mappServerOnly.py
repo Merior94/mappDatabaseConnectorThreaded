@@ -221,11 +221,9 @@ class DB:
 		self._host = host
 		self._database = database
 		self._port = port
-		self._pool_name = "mypool"      ###Merior: SQL pooling
-		self._pool_size = 5             ###Merior: SQL pooling
 
 		import mysql.connector
-		self._cnx = mysql.connector.connect(pool_name = self._pool_name, pool_size = self._pool_size, user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+		self._cnx = mysql.connector.connect(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
 
 
 	def disconnect(self):
@@ -283,7 +281,7 @@ class DB:
 
 class S(BaseHTTPRequestHandler):
 	#Create instance of DB Class	
-	__sqlDb = DB()
+	###__sqlDb = DB()
 
 	#disconnect = False
 	
@@ -395,7 +393,8 @@ class S(BaseHTTPRequestHandler):
 		if self.disconnect:
 			print("do_POST self.disconnect = {}".format(self.disconnect))
 			logging.debug("do_POST self.disconnect = {}".format(self.disconnect))
-			self._respond(self.__sqlDb.disconnect())
+			###self._respond(self.__sqlDb.disconnect())
+			makeJsonResponse(0, "disconnected", "")
 			self.disconnect = False
 		else:
 			# FIXME: handle invalid request
@@ -410,10 +409,10 @@ class S(BaseHTTPRequestHandler):
 				rawdata = rawdata[:pos]
 				print("rawdata cutted")
 				print(rawdata)
-				logging.debug("do_POST rawdata cutted {}".format(rawdata)) 
-
+				logging.debug("do_POST rawdata cutted {}".format(rawdata))
+				
 			jsonRequest = list(data.items())[0][0]
-			print("Length: {} RawData: {}".format(length,rawdata))
+			print("Length: {} RawData: {}".format(length,rawdata))			   
 
 			try:
 				serialized = json.loads(jsonRequest)
@@ -430,7 +429,8 @@ class S(BaseHTTPRequestHandler):
 				if "getData" in serialized:
 					print("getData")
 					# get actual data
-					self._respond(self.__sqlDb.getData())
+					###self._respond(self.__sqlDb.getData())
+					self._respond(makeJsonResponse(0, "", response))
 				else:
 					# Execute query to get response size
 					execQuery = serialized['query']
@@ -438,7 +438,8 @@ class S(BaseHTTPRequestHandler):
 						execQuery = execQuery.translate({ord(c): None for c in '`'})
 					else:
 						execQuery = execQuery
-					self._respond(self.__sqlDb.query(execQuery))
+					self._respond(makeJsonResponse(0, "", {}))
+					###self._respond(self.__sqlDb.query(execQuery))
 			except KeyError:
 				try:
 					print("connection?")
@@ -452,7 +453,7 @@ class S(BaseHTTPRequestHandler):
 						scriptVersion = parse_version(__version__)
 						#import pdb; pdb.set_trace()
 						if ((minVersion <= scriptVersion) and  (scriptVersion <= maxVersion)):
-							self.__sqlDb.connect(connection['user'], connection['password'], args.sqlHost, args.sqlPort, connection['database'])
+							###self.__sqlDb.connect(connection['user'], connection['password'], args.sqlHost, args.sqlPort, connection['database'])
 							self._respond(makeJsonResponse(0, "",{'timeout': args.httpTimeout, 'dbms': args.sqlType, 'VO': 'active'}))
 						else:
 							self._respond(makeJsonResponse(3, __version__,""))
@@ -464,7 +465,8 @@ class S(BaseHTTPRequestHandler):
 					# try to disconnect
 					print("do_POST KeyError self.disconnect = {}".format(self.disconnect))
 					logging.debug("do_POST KeyError self.disconnect = {}".format(self.disconnect))
-					self._respond(self.__sqlDb.disconnect())
+					###self._respond(self.__sqlDb.disconnect())
+					makeJsonResponse(0, "disconnected", "")
 				except Exception as ex:
 					print("EXCEPTION connection")
 					if (args.sqlType == 'postgres'):
@@ -490,7 +492,7 @@ def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	handler_class.protocol_version = 'HTTP/1.1'
 	#httpd = socketserver.TCPServer(("",webServerPort),handler_class)
 	httpd = server_class(('',webServerPort), handler_class)
-	httpd.allow_reuse_address = True
+	#httpd.allow_reuse_address = True
 	#httpd.daemon_threads = True
 
 	print('Starting httpd at port ' + str(webServerPort))

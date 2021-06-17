@@ -430,7 +430,7 @@ def run(server_class=HTTPServer, handler_class=S, webServerPort=85):
 	print('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
 
 	###Merior: logging configuration
-	logging.basicConfig(filename='single.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
+	logging.basicConfig(filename='/home/br/single.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
 	logging.info('Starting httpd at port ' + str(webServerPort))
 	logging.info('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
 

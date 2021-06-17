@@ -8,13 +8,23 @@ import socketserver
 import collections
 import decimal
 import re
-
+import mysql.connector
 import threading
 import logging
 
 __version__ = "5.12.0"
 
 from mysql.connector import FieldType
+
+### connection pool
+##dbconfig = {
+##  "database": "OEE",
+##  "host": "10.48.40.99",
+##  "port": "3306",
+##  "user": "br",
+##  "password": "brautomation"
+##}
+##cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name = "mypool", pool_size = 5, **dbconfig)
 
 # Dictionary for translating odbc datatype to MpDatabase
 # approved types (currenly based on MySql type table)
@@ -223,10 +233,20 @@ class DB:
 		self._port = port
 		self._pool_name = "mypool"      ###Merior: SQL pooling
 		self._pool_size = 5             ###Merior: SQL pooling
+		cur_thread = threading.current_thread()
+		print("connect() thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+		
+##		try:
+##		    self._cnx.close()
+##		    print("DB.connect() close()")
+##		except:
+##		    pass
+		self._cnx = mysql.connector.connect(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+		##self._cnx = mysql.connector.connect(pool_name = self._pool_name, pool_size = self._pool_size, user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
 
-		import mysql.connector
-		self._cnx = mysql.connector.connect(pool_name = self._pool_name, pool_size = self._pool_size, user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
-
+		##global cnxpool
+		##cnxpool.set_config(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+		##self._cnx = cnxpool.get_connection()
 
 	def disconnect(self):
 		print("Trying to disconnect...")
@@ -239,11 +259,11 @@ class DB:
 			return makeJsonResponse(1, "not connected to sql server", "")
 
 	def getData(self):
-		print("getData response: {}".format(self._jsonResponse))
+		#print("getData response: {}".format(self._jsonResponse))
 		return self._jsonResponse
 
 	def query(self, sql):
-		print("DB.query()")
+		#print("DB.query()")
 		try:
 			cursor = self._cnx.cursor(buffered=True)
 		except Exception as ex:
@@ -253,11 +273,13 @@ class DB:
 		# split multistatement queries, but ignore semicolon within queries
 		for statement in re.sub(r'(\)\s*);', r'\1%;%', sql).split('%;%'):
 			cursor.execute(statement)
-		try:
-			print("Query will be executed:")
-			print(sql)
-		except Exception as ex:
-			print('Query will be executed: error printing the query. Check special characters and encoding.')
+			
+##		try:
+##			print("Query will be executed:")
+##			print(sql)
+##		except Exception as ex:
+##			print('Query will be executed: error printing the query. Check special characters and encoding.')
+			
 		data = []
 		response = {}
 
@@ -272,22 +294,21 @@ class DB:
 		if(cursor.description):
 			column_names = cursor.column_names
 			response = sqlToJson(column_names, data, cursor.description)
-			print("Response: {}".format(response))                          #print response
+			#print("Response: {}".format(response))                          #print response
 		self._cnx.commit()
 		cursor.close()
 		self._jsonResponse = makeJsonResponse(0, "", response)
 		
-		print(json.dumps({"responseSize":len(self._jsonResponse)}))             #####
+		#print(json.dumps({"responseSize":len(self._jsonResponse)}))             #####
 		
 		return json.dumps({"responseSize":len(self._jsonResponse)})     #return
 
 class S(BaseHTTPRequestHandler):
-	#Create instance of DB Class	
-	__sqlDb = DB()
-
 	#disconnect = False
 	
 	def __init__(self, request, client_address, server):
+		#Create instance of DB Class	
+		self.__sqlDb = DB()
 		self.disconnect = False
 		print("DB.__init__ self.disconnect = {}".format(self.disconnect))
 		logging.debug("DB.__init__ self.disconnect = {}".format(self.disconnect))
@@ -348,9 +369,9 @@ class S(BaseHTTPRequestHandler):
 		self.wfile.write(bytes(jsonResponse, "utf-8"))
 		logging.debug('Respond: %s', jsonResponse)
 
-#	def log_message(self, format, *args):
+	def log_message(self, format, *args):
 #		print("Log!")
-#		pass
+		pass
 
 	def _html(self):
 		"""This just generates an HTML document that includes `message`
@@ -388,8 +409,8 @@ class S(BaseHTTPRequestHandler):
 		
 		#Show thread data
 		cur_thread = threading.current_thread()
-		print()
-		print("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+		#print()
+		#print("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
 		logging.debug("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
 		
 		if self.disconnect:
@@ -404,16 +425,8 @@ class S(BaseHTTPRequestHandler):
 			data = urllib.parse.parse_qs(rawdata.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
 			#data = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1, encoding='utf-8')
 
-			###Merior: Handle too long responses
-			pos = rawdata.find(b'\x00')
-			if pos != -1:                                     
-				rawdata = rawdata[:pos]
-				print("rawdata cutted")
-				print(rawdata)
-				logging.debug("do_POST rawdata cutted {}".format(rawdata)) 
-
 			jsonRequest = list(data.items())[0][0]
-			print("Length: {} RawData: {}".format(length,rawdata))
+			#print("Length: {} RawData: {}".format(length,rawdata))
 
 			try:
 				serialized = json.loads(jsonRequest)
@@ -428,7 +441,7 @@ class S(BaseHTTPRequestHandler):
 				return
 			try:
 				if "getData" in serialized:
-					print("getData")
+					#print("getData")
 					# get actual data
 					self._respond(self.__sqlDb.getData())
 				else:
@@ -466,7 +479,7 @@ class S(BaseHTTPRequestHandler):
 					logging.debug("do_POST KeyError self.disconnect = {}".format(self.disconnect))
 					self._respond(self.__sqlDb.disconnect())
 				except Exception as ex:
-					print("EXCEPTION connection")
+					print("### EXCEPTION connection")
 					if (args.sqlType == 'postgres'):
 						debug_print("PostgreSQL error:",str(ex))
 						self._respond(makeJsonResponse(ex.args[0], "", ""))
@@ -474,12 +487,13 @@ class S(BaseHTTPRequestHandler):
 						debug_print(ex.args[0],ex.args[1])
 						self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
 			except Exception as ex:
-				print("EXCEPTION")
+				print("### EXCEPTION")
 				if (args.sqlType == 'postgres'):
 					debug_print("PostgreSQL error:",str(ex))
 					self._respond(makeJsonResponse(ex.args[0], "", ""))
 				else:
-					debug_print(ex.args[0],ex.args[1])
+					debug_print("PostgreSQL error:",str(ex))
+					#debug_print(ex.args[0],ex.args[1])
 					self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
 
 def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
@@ -529,7 +543,7 @@ if __name__ == "__main__":
 		formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('httpPort', type=str,
 					default='8080', const=1, nargs='?',
-					help='http server port (default: 85)')
+					help='http server port (default: 8080)')
 	parser.add_argument('sqlHost', type=str,
 					default='127.0.0.1', const=1, nargs='?',
 					help='sql server host (default: 127.0.0.1)')

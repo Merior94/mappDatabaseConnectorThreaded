@@ -400,8 +400,6 @@ class S(BaseHTTPRequestHandler):
 			# FIXME: handle invalid request
 			length = int(self.headers.get('content-length'))
 			rawdata = self.rfile.read(length)
-			data = urllib.parse.parse_qs(rawdata.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
-			#data = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1, encoding='utf-8')
 
 			###Merior: Handle too long responses
 			pos = rawdata.find(b'\x00')
@@ -409,8 +407,11 @@ class S(BaseHTTPRequestHandler):
 				rawdata = rawdata[:pos]
 				print("rawdata cutted")
 				print(rawdata)
-				logging.debug("do_POST rawdata cutted {}".format(rawdata))
+				logging.debug("do_POST header\n {}".format(self.headers))
+				logging.debug("do_POST rawdata\n cutted {}".format(rawdata))
 				
+			data = urllib.parse.parse_qs(rawdata.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
+			#data = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1, encoding='utf-8')
 			jsonRequest = list(data.items())[0][0]
 			print("Length: {} RawData: {}".format(length,rawdata))			   
 
@@ -499,7 +500,7 @@ def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	print('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
 
 	#logging configuration
-	logging.basicConfig(filename='multi.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
+	logging.basicConfig(filename='/home/br/server.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
 	logging.info('Starting httpd at port ' + str(webServerPort))
 	logging.info('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
 

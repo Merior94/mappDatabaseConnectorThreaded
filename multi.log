@@ -1,0 +1,7 @@
+2021-06-17 07:33:18 INFO: Starting httpd at port 8080
+2021-06-17 07:33:18 INFO: SQL server host 127.0.0.1:3306
+2021-06-17 07:33:18 DEBUG: This message should go to the log file 3306
+2021-06-17 07:33:18 INFO: So should this
+2021-06-17 07:33:18 WARNING: And this, too
+2021-06-17 07:33:18 ERROR: And non-ASCII stuff, too, like \xd8resund and Malmö
+2021-06-17 07:33:18 CRITICAL: Panic!

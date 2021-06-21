@@ -8,23 +8,12 @@ import socketserver
 import collections
 import decimal
 import re
-import mysql.connector
 import threading
 import logging
 
 __version__ = "5.12.0"
 
 from mysql.connector import FieldType
-
-### connection pool
-##dbconfig = {
-##  "database": "OEE",
-##  "host": "10.48.40.99",
-##  "port": "3306",
-##  "user": "br",
-##  "password": "brautomation"
-##}
-##cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name = "mypool", pool_size = 5, **dbconfig)
 
 # Dictionary for translating odbc datatype to MpDatabase
 # approved types (currenly based on MySql type table)
@@ -215,7 +204,9 @@ class DB:
 
 	def __init__(self):
 		print()
-		print("DB.__init__()")
+		print("{} DB.__init__()".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+		logging.debug("{} DB.__init__()".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+		
 		self._user = None               # instance variable unique to each instance
 		self._password = None           # instance variable unique to each instance
 		self._host = None               # instance variable unique to each instance
@@ -224,32 +215,41 @@ class DB:
 		self._jsonResponse = None       # instance variable unique to each instance
 
 	def connect(self, user, password, host, port, database):
-		print()
-		print("DB.connect()")
 		self._user = user
 		self._password = password
 		self._host = host
 		self._database = database
 		self._port = port
-		self._pool_name = "mypool"      ###Merior: SQL pooling
-		self._pool_size = 5             ###Merior: SQL pooling
 		cur_thread = threading.current_thread()
-		print("connect() thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+		print()
+		print("{} DB.connect() {}:{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),cur_thread.name,threading.get_ident()))
+		logging.info("{} DB.connect() {}:{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),cur_thread.name,threading.get_ident()))
 		
-##		try:
-##		    self._cnx.close()
-##		    print("DB.connect() close()")
-##		except:
-##		    pass
-		self._cnx = mysql.connector.connect(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
-		##self._cnx = mysql.connector.connect(pool_name = self._pool_name, pool_size = self._pool_size, user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
-
-		##global cnxpool
-		##cnxpool.set_config(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
-		##self._cnx = cnxpool.get_connection()
+		if(args.sqlType == 'mssql'):
+			import pyodbc
+			server = str(self._host) + ',' + str(self._port)
+			self._cnx = pyodbc.connect(driver='{SQL Server Native Client 11.0}',
+									   server=server,
+									   database=self._database,
+									   uid=self._user, pwd=self._password,
+									   autocommit=True)
+		elif(args.sqlType == 'postgres'):
+			import psycopg2
+			self._cnx = psycopg2.connect(user=self._user, password=self._password,
+										 host=self._host,
+										 database=self._database,
+										 port=self._port)
+			self._cnx.autocommit = True
+		else:
+			import mysql.connector
+			self._cnx = mysql.connector.connect(user=self._user, password=self._password,
+												host=self._host,
+												database=self._database,
+												port=self._port)
 
 	def disconnect(self):
-		print("Trying to disconnect...")
+		print("{} Trying to disconnect...".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+		logging.info("{} Trying to disconnect...".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 		try:
 			self._cnx.close()
 			return makeJsonResponse(0, "disconnected", "")
@@ -259,11 +259,11 @@ class DB:
 			return makeJsonResponse(1, "not connected to sql server", "")
 
 	def getData(self):
-		#print("getData response: {}".format(self._jsonResponse))
+		logging.debug("getData response: {}".format(self._jsonResponse))
 		return self._jsonResponse
 
 	def query(self, sql):
-		#print("DB.query()")
+		logging.debug("DB.query()")
 		try:
 			cursor = self._cnx.cursor(buffered=True)
 		except Exception as ex:
@@ -274,11 +274,13 @@ class DB:
 		for statement in re.sub(r'(\)\s*);', r'\1%;%', sql).split('%;%'):
 			cursor.execute(statement)
 			
-##		try:
-##			print("Query will be executed:")
-##			print(sql)
-##		except Exception as ex:
-##			print('Query will be executed: error printing the query. Check special characters and encoding.')
+		try:
+			print("Query will be executed:")
+			print(sql)
+			logging.debug("{} Query will be executed: {}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),sql))
+		except Exception as ex:
+			print('Query will be executed: error printing the query. Check special characters and encoding.')
+			logging.warning("{} Query will be executed: error printing the query. Check special characters and encoding.: {}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 			
 		data = []
 		response = {}
@@ -294,68 +296,56 @@ class DB:
 		if(cursor.description):
 			column_names = cursor.column_names
 			response = sqlToJson(column_names, data, cursor.description)
-			#print("Response: {}".format(response))                          #print response
+			logging.debug("Response: {}".format(response))
 		self._cnx.commit()
 		cursor.close()
 		self._jsonResponse = makeJsonResponse(0, "", response)
 		
-		#print(json.dumps({"responseSize":len(self._jsonResponse)}))             #####
+		logging.debug(json.dumps({"responseSize":len(self._jsonResponse)}))
 		
 		return json.dumps({"responseSize":len(self._jsonResponse)})     #return
 
 class S(BaseHTTPRequestHandler):
-	#disconnect = False
-	
+
 	def __init__(self, request, client_address, server):
 		#Create instance of DB Class	
 		self.__sqlDb = DB()
 		self.disconnect = False
-		print("DB.__init__ self.disconnect = {}".format(self.disconnect))
-		logging.debug("DB.__init__ self.disconnect = {}".format(self.disconnect))
-		super().__init__(request, client_address, server)
-		
+		super().__init__(request, client_address, server)		
 		
 	#Override method to modify the message show in the console due to timeout
-#	def handle_one_request(self):
-#		try:
-#			self.raw_requestline = self.rfile.readline(65537)
-#			if len(self.raw_requestline) > 65536:
-#				self.requestline = ''
-#				self.request_version = ''
-#				self.command = ''
-#				self.send_error(414)
-#				return
-#			if not self.raw_requestline:
-#				self.close_connection = 1
-#				return
-#			if not self.parse_request():
-#				# An error code has been sent, just exit
-#				return
-#			mname = 'do_' + self.command
-#			if not hasattr(self, mname):
-#				self.send_error(501, "Unsupported method (%r)" % self.command)
-#				return
-#			method = getattr(self, mname)
-#			method()
-#			self.wfile.flush() #actually send the response if not already done.
-#		except socketserver.socket.timeout as e:
-#			self.disconnect = True
-#			#Show thread data
-#			cur_thread = threading.current_thread()
-#			print()
-#			print("DB.handle_one_request timeout thread: {}:{}".format(cur_thread.name,threading.get_ident()))
-#			logging.debug("DB.handle_one_request timeout thread: {}:{}".format(cur_thread.name,threading.get_ident()))
-#			print("DB.handle_one_request timeout self.disconnect = {}".format(self.disconnect))
-#			logging.debug("DB.handle_one_request timeout self.disconnect = {}".format(self.disconnect))
-#			self.do_POST()          # poszło do zlego watku
-#			self.close_connection = 1
-#			return
+	def handle_one_request(self):
+		try:
+			self.raw_requestline = self.rfile.readline(65537)
+			if len(self.raw_requestline) > 65536:
+				self.requestline = ''
+				self.request_version = ''
+				self.command = ''
+				self.send_error(414)
+				return
+			if not self.raw_requestline:
+				self.close_connection = 1
+				return
+			if not self.parse_request():
+				# An error code has been sent, just exit
+				return
+			mname = 'do_' + self.command
+			if not hasattr(self, mname):
+				self.send_error(501, "Unsupported method (%r)" % self.command)
+				return
+			method = getattr(self, mname)
+			method()
+			self.wfile.flush() #actually send the response if not already done.
+		except socketserver.socket.timeout as e:
+			self.disconnect = True
+			self.do_POST()
+			self.close_connection = 1
+			return
 
 	#Override method to set a timeout
 	def setup(self):
 		BaseHTTPRequestHandler.setup(self)
 		self.request.settimeout(args.httpTimeout)
-		logging.info('Setup')
 
 	def _set_headers(self, contentLength):
 		self.send_response(200)
@@ -391,9 +381,8 @@ class S(BaseHTTPRequestHandler):
 	def do_GET(self):
 		#Respond to html request
 		cur_thread = threading.current_thread()
-		print()
-		print("{} threads.".format(len(threading.enumerate())))
-		print("{}:{}".format(cur_thread.name,threading.get_ident()), "Get received!")
+		print("{} Running with {} threads.".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),len(threading.enumerate())))
+		print("{} {}:{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"), cur_thread.name,threading.get_ident()), "Get received!")
 
 		try:
 			self.send_response(200)
@@ -402,19 +391,15 @@ class S(BaseHTTPRequestHandler):
 			self.wfile.write(self._html())
 		except:
 			pass
-		print("Responded html")
+		print("{} Responded html".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 
 
-	def do_POST(self):
-		
+	def do_POST(self):		
 		#Show thread data
 		cur_thread = threading.current_thread()
-		#print()
-		#print("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
 		logging.debug("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
 		
 		if self.disconnect:
-			print("do_POST self.disconnect = {}".format(self.disconnect))
 			logging.debug("do_POST self.disconnect = {}".format(self.disconnect))
 			self._respond(self.__sqlDb.disconnect())
 			self.disconnect = False
@@ -424,17 +409,12 @@ class S(BaseHTTPRequestHandler):
 			rawdata = self.rfile.read(length)
 			data = urllib.parse.parse_qs(rawdata.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
 			#data = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1, encoding='utf-8')
-
 			jsonRequest = list(data.items())[0][0]
-			#print("Length: {} RawData: {}".format(length,rawdata))
 
 			try:
 				serialized = json.loads(jsonRequest)
 			except Exception as ex:
-				print('do_POST Failed parsing length {} rawdata {}'.format(length,rawdata))
 				logging.debug("do_POST Failed parsing length {} rawdata {}".format(length,rawdata))
-
-				print('do_POST Failed parsing {}'.format(jsonRequest))
 				logging.debug("do_POST Failed parsing = {}".format(jsonRequest))
 				exit()
 				self._respond(makeJsonResponse(2, "", {}))
@@ -454,7 +434,6 @@ class S(BaseHTTPRequestHandler):
 					self._respond(self.__sqlDb.query(execQuery))
 			except KeyError:
 				try:
-					print("connection?")
 					# try to connect and do test query
 					connection = serialized['connection'][0]
 					if 'libraryVersion' in connection:
@@ -476,24 +455,28 @@ class S(BaseHTTPRequestHandler):
 				except KeyError:
 					# try to disconnect
 					print("do_POST KeyError self.disconnect = {}".format(self.disconnect))
-					logging.debug("do_POST KeyError self.disconnect = {}".format(self.disconnect))
+					logging.error("do_POST KeyError self.disconnect = {}".format(self.disconnect))
 					self._respond(self.__sqlDb.disconnect())
 				except Exception as ex:
-					print("### EXCEPTION connection")
 					if (args.sqlType == 'postgres'):
 						debug_print("PostgreSQL error:",str(ex))
+						logging.error("PostgreSQL error:",str(ex))
 						self._respond(makeJsonResponse(ex.args[0], "", ""))
 					else:
 						debug_print(ex.args[0],ex.args[1])
+						logging.error(ex.args[0],ex.args[1])
 						self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
 			except Exception as ex:
-				print("### EXCEPTION")
+				
 				if (args.sqlType == 'postgres'):
 					debug_print("PostgreSQL error:",str(ex))
+					logging.error("PostgreSQL error:",str(ex))
 					self._respond(makeJsonResponse(ex.args[0], "", ""))
 				else:
 					debug_print("PostgreSQL error:",str(ex))
-					#debug_print(ex.args[0],ex.args[1])
+					debug_print(ex.args[0],ex.args[1])
+					logging.error("PostgreSQL error:",str(ex))
+					logging.error(ex.args[0],ex.args[1])
 					self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
 
 def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
@@ -505,30 +488,32 @@ def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	#httpd = socketserver.TCPServer(("",webServerPort),handler_class)
 	httpd = server_class(('',webServerPort), handler_class)
 	httpd.allow_reuse_address = True
-	#httpd.daemon_threads = True
 
-	print('Starting httpd at port ' + str(webServerPort))
-	print('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
+	print()
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
 
-	#logging configuration
-	logging.basicConfig(filename='multi.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
-	logging.info('Starting httpd at port ' + str(webServerPort))
-	logging.info('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
-
-	logging.debug('This message should go to the log file %s', str(args.sqlPort))
-	logging.info('So should this')
-	logging.warning('And this, too')
-	logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
-	logging.critical('Panic!')
+        #logging configuration
+	logging.basicConfig(filename='home/br/multi.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.INFO)
+	logging.info(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
+	logging.info(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
+	
+##	logging.debug('debug')
+##	logging.info('info')
+##	logging.warning('warning')
+##	logging.error('error')
+##	logging.critical('critical')
 
 	try:
 		httpd.serve_forever()
 	except:
 		pass
 
-	print ("Closing server")
+	print("{} Closing server".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+	logging.info("{} Closing server".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 	httpd.server_close()
-	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),"Server stops")
+	print("{} Server stops".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+	logging.info("{} Server stops".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 
 	# FIXME: line below sets up HTTPS server, but it is args.sqlType yet supported from a client side
 	# httpd.socket = ssl.wrap_socket (httpd.socket, certfile='./server.pem', server_side=True)

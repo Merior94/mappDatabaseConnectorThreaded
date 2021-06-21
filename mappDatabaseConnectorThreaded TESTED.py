@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import ssl
 import datetime
@@ -8,11 +8,23 @@ import socketserver
 import collections
 import decimal
 import re
-import logging  ###Merior: logging
+import mysql.connector
+import threading
+import logging
 
 __version__ = "5.12.0"
-	
+
 from mysql.connector import FieldType
+
+### connection pool
+##dbconfig = {
+##  "database": "OEE",
+##  "host": "10.48.40.99",
+##  "port": "3306",
+##  "user": "br",
+##  "password": "brautomation"
+##}
+##cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name = "mypool", pool_size = 5, **dbconfig)
 
 # Dictionary for translating odbc datatype to MpDatabase
 # approved types (currenly based on MySql type table)
@@ -48,8 +60,6 @@ psycopg2_mysql_datatype_map = {
 	1042: (FieldType.VAR_STRING)#character
 }
 
-disconnect = False
-
 # MSSQL Float storage size is specification: https://docs.microsoft.com/en-us/sql/t-sql/data-types/float-and-real-transact-sql?view=sql-server-2017
 def specifyFloat(internalSize):
 	if 1<=internalSize<=24:
@@ -69,15 +79,6 @@ def makeJsonResponse(status, message, response):
 	data['message'] = message
 	data['response'] = response
 	return json.dumps(data, default=myconverter)
-
-def debug_log(text):
-	if len(args.l) > 0:
-		try:
-			with open(args.l, 'w+') as f:
-				f = open(args.l, 'w+')
-				f.write(makeJsonResponse(0, "",text))
-		except:
-			print('Can not log to file "{0}"'.format(args.l))
 
 def debug_print(error, msg):
 	print("Exception: code %s, message %s" % (str(error),msg))
@@ -209,131 +210,152 @@ def myconverter(o):
 			return makeDateTime(o)
 	elif isinstance(o, decimal.Decimal):
 		return float(o) # python's float has double precision
-		
+
 class DB:
 
-	_user = None
-	_password = None
-	_host = None
-	_database = None
-	_cnx = None
-	_jsonResponse = None
+	def __init__(self):
+		print()
+		print("{} DB.__init__()".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+		self._user = None               # instance variable unique to each instance
+		self._password = None           # instance variable unique to each instance
+		self._host = None               # instance variable unique to each instance
+		self._database = None           # instance variable unique to each instance
+		self._cnx = None                # instance variable unique to each instance
+		self._jsonResponse = None       # instance variable unique to each instance
 
 	def connect(self, user, password, host, port, database):
+		print()
+		print("{} DB.connect()".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 		self._user = user
 		self._password = password
 		self._host = host
 		self._database = database
 		self._port = port
-		if(args.sqlType == 'mssql'):
-			import pyodbc
-			server = str(self._host) + ',' + str(self._port)
-			self._cnx = pyodbc.connect(driver='{SQL Server Native Client 11.0}',
-									   server=server,
-									   database=self._database,
-									   uid=self._user, pwd=self._password,
-									   autocommit=True)
-		elif(args.sqlType == 'postgres'):
-			import psycopg2
-			self._cnx = psycopg2.connect(user=self._user, password=self._password,
-										 host=self._host,
-										 database=self._database,
-										 port=self._port)
-			self._cnx.autocommit = True
-		else:
-			import mysql.connector
-			self._cnx = mysql.connector.connect(user=self._user, password=self._password,
-												host=self._host,
-												database=self._database,
-												port=self._port)
+		#self._pool_name = "mypool"      ###Merior: SQL pooling
+		#self._pool_size = 5             ###Merior: SQL pooling
+		cur_thread = threading.current_thread()
+		print("{} DB.connect() {}:{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),cur_thread.name,threading.get_ident()))
+		
+##		try:
+##		    self._cnx.close()
+##		    print("DB.connect() close()")
+##		except:
+##		    pass
+		self._cnx = mysql.connector.connect(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+		##self._cnx = mysql.connector.connect(pool_name = self._pool_name, pool_size = self._pool_size, user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+
+		##global cnxpool
+		##cnxpool.set_config(user=self._user, password=self._password, host=self._host, database=self._database, port=self._port)
+		##self._cnx = cnxpool.get_connection()
 
 	def disconnect(self):
+		print("{} Trying to disconnect...".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 		try:
 			self._cnx.close()
 			return makeJsonResponse(0, "disconnected", "")
+
 		except Exception as ex:
 			print("Not connected to sql server")
 			return makeJsonResponse(1, "not connected to sql server", "")
 
 	def getData(self):
+		#print("getData response: {}".format(self._jsonResponse))
 		return self._jsonResponse
 
 	def query(self, sql):
+		#print("DB.query()")
 		try:
-			if (args.sqlType == 'mssql') or (args.sqlType == 'postgres'):
-				cursor = self._cnx.cursor()
-			else:
-				cursor = self._cnx.cursor(buffered=True)
+			cursor = self._cnx.cursor(buffered=True)
 		except Exception as ex:
 			debug_print(1, str(ex))
 			return makeJsonResponse(1, "not connected to sql server", "")
+
 		# split multistatement queries, but ignore semicolon within queries
 		for statement in re.sub(r'(\)\s*);', r'\1%;%', sql).split('%;%'):
 			cursor.execute(statement)
-		try:
-			print('query will be executed: ' + sql)
-		except Exception as ex:
-			print('query will be executed: error printing the query. Check special characters and encoding.')
+			
+##		try:
+##			print("Query will be executed:")
+##			print(sql)
+##		except Exception as ex:
+##			print('Query will be executed: error printing the query. Check special characters and encoding.')
+			
 		data = []
 		response = {}
+
 		# Always try to fetch data independent of insert / select
 		try:
 			data = cursor.fetchall()
 		except Exception as ex:
 			pass
+
 		# cursor description is available if there was a response
 		# Hence we create the json response that can later be forwared
 		if(cursor.description):
-			if(args.sqlType == 'mssql') or (args.sqlType == 'postgres'):
-				column_names = [column[0] for column in cursor.description]
-			else:
-				column_names = cursor.column_names
+			column_names = cursor.column_names
 			response = sqlToJson(column_names, data, cursor.description)
+			#print("Response: {}".format(response))                          #print response
 		self._cnx.commit()
 		cursor.close()
-		debug_log(response)
 		self._jsonResponse = makeJsonResponse(0, "", response)
-		return json.dumps({"responseSize":len(self._jsonResponse)})
 		
+		#print(json.dumps({"responseSize":len(self._jsonResponse)}))             #####
+		
+		return json.dumps({"responseSize":len(self._jsonResponse)})     #return
+
 class S(BaseHTTPRequestHandler):
 
-	__sqlDb = DB()
-	
+	def __init__(self, request, client_address, server):
+		#Create instance of DB Class	
+		self.__sqlDb = DB()
+		self.disconnect = False
+		##print("DB.__init__ self.disconnect = {}".format(self.disconnect))
+		##logging.debug("DB.__init__ self.disconnect = {}".format(self.disconnect))
+		super().__init__(request, client_address, server)
+		
+		
 	#Override method to modify the message show in the console due to timeout
-	def handle_one_request(self):
-		try:
-			self.raw_requestline = self.rfile.readline(65537)
-			if len(self.raw_requestline) > 65536:
-				self.requestline = ''
-				self.request_version = ''
-				self.command = ''
-				self.send_error(414)
-				return
-			if not self.raw_requestline:
-				self.close_connection = 1
-				return
-			if not self.parse_request():
-				# An error code has been sent, just exit
-				return
-			mname = 'do_' + self.command
-			if not hasattr(self, mname):
-				self.send_error(501, "Unsupported method (%r)" % self.command)
-				return
-			method = getattr(self, mname)
-			method()
-			self.wfile.flush() #actually send the response if not already done.
-		except socketserver.socket.timeout as e:
-			global disconnect
-			disconnect = True
-			self.do_POST()
-			self.close_connection = 1
-			return
-	
+#	def handle_one_request(self):
+#		try:
+#			self.raw_requestline = self.rfile.readline(65537)
+#			if len(self.raw_requestline) > 65536:
+#				self.requestline = ''
+#				self.request_version = ''
+#				self.command = ''
+#				self.send_error(414)
+#				return
+#			if not self.raw_requestline:
+#				self.close_connection = 1
+#				return
+#			if not self.parse_request():
+#				# An error code has been sent, just exit
+#				return
+#			mname = 'do_' + self.command
+#			if not hasattr(self, mname):
+#				self.send_error(501, "Unsupported method (%r)" % self.command)
+#				return
+#			method = getattr(self, mname)
+#			method()
+#			self.wfile.flush() #actually send the response if not already done.
+#		except socketserver.socket.timeout as e:
+#			self.disconnect = True
+#			#Show thread data
+#			cur_thread = threading.current_thread()
+#			print()
+#			print("DB.handle_one_request timeout thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+#			logging.debug("DB.handle_one_request timeout thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+#			print("DB.handle_one_request timeout self.disconnect = {}".format(self.disconnect))
+#			logging.debug("DB.handle_one_request timeout self.disconnect = {}".format(self.disconnect))
+#			self.do_POST()          # poszło do zlego watku
+#			self.close_connection = 1
+#			return
+
 	#Override method to set a timeout
 	def setup(self):
 		BaseHTTPRequestHandler.setup(self)
 		self.request.settimeout(args.httpTimeout)
-		
+		logging.info('Setup')
+
 	def _set_headers(self, contentLength):
 		self.send_response(200)
 		self.send_header('Content-type', 'text/html')
@@ -344,33 +366,80 @@ class S(BaseHTTPRequestHandler):
 	def _respond(self, jsonResponse):
 		self._set_headers(len(jsonResponse))
 		self.wfile.write(bytes(jsonResponse, "utf-8"))
+		logging.debug('Respond: %s', jsonResponse)
+
+	def log_message(self, format, *args):
+#		print("Log!")
+		pass
+
+	def _html(self):
+		"""This just generates an HTML document that includes `message`
+		in the body. Override, or re-write this do do more interesting stuff.
+		"""
+		currenttime = "{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"))
+		nrofthreads = "{} threads".format(len(threading.enumerate()))
+		cur_thread = threading.current_thread()
+		threadpid = cur_thread.name,threading.get_ident()
+		threadlist = threading.enumerate()
+		threadlist = '\n'.join([str(x) for x in threadlist])
+		threadlist = threadlist.replace("<", "")
+		threadlist = threadlist.replace(">", "</p>")
+		content = "<html><body><h1>{}</h1></p>mappDatabaseConnector is running with {}.</p>Current thread: {} </p> List: </p> {}</body></html>".format(currenttime,nrofthreads,threadpid,threadlist)
+		return content.encode("utf8")  # NOTE: must return a bytes object!
 
 	def do_GET(self):
-		self._set_headers(len("server up.."))
-		self.wfile.write("server up..")
-		
+		#Respond to html request
+		cur_thread = threading.current_thread()
+		print("{} Running with {} threads.".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"),len(threading.enumerate())))
+		print("{} {}:{}".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S"), cur_thread.name,threading.get_ident()), "Get received!")
+
+		try:
+			self.send_response(200)
+			self.send_header("Content-type", "text/html")
+			self.end_headers()
+			self.wfile.write(self._html())
+		except:
+			pass
+		print("{} Responded html".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+
+
 	def do_POST(self):
-		global disconnect
-		if disconnect:
+		
+		#Show thread data
+		cur_thread = threading.current_thread()
+		#print()
+		#print("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+		logging.debug("do_POST thread: {}:{}".format(cur_thread.name,threading.get_ident()))
+		
+		if self.disconnect:
+			print("do_POST self.disconnect = {}".format(self.disconnect))
+			logging.debug("do_POST self.disconnect = {}".format(self.disconnect))
 			self._respond(self.__sqlDb.disconnect())
-			disconnect = False
+			self.disconnect = False
 		else:
 			# FIXME: handle invalid request
 			length = int(self.headers.get('content-length'))
-			logging.debug(self.headers)
-			dataRaw = self.rfile.read(length)
-			data = urllib.parse.parse_qs(dataRaw.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
+			rawdata = self.rfile.read(length)
+			data = urllib.parse.parse_qs(rawdata.decode('utf-8'), keep_blank_values=1, encoding='utf-8')
+			#data = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1, encoding='utf-8')
+
 			jsonRequest = list(data.items())[0][0]
-			logging.debug("do_POST: Length: {} DataRaw: {}".format(length,dataRaw)) ###Merior: Log each post message received
+			#print("Length: {} RawData: {}".format(length,rawdata))
+
 			try:
 				serialized = json.loads(jsonRequest)
 			except Exception as ex:
-				print('failed parsing {0}'.format(jsonRequest))
-				logging.debug("do_POST Failed parsing Length: {} jsonRequest: {}".format(length,jsonRequest)) ###Merior: Log each failed parsing
+				print('do_POST Failed parsing length {} rawdata {}'.format(length,rawdata))
+				logging.debug("do_POST Failed parsing length {} rawdata {}".format(length,rawdata))
+
+				print('do_POST Failed parsing {}'.format(jsonRequest))
+				logging.debug("do_POST Failed parsing = {}".format(jsonRequest))
+				exit()
 				self._respond(makeJsonResponse(2, "", {}))
 				return
 			try:
 				if "getData" in serialized:
+					#print("getData")
 					# get actual data
 					self._respond(self.__sqlDb.getData())
 				else:
@@ -383,6 +452,7 @@ class S(BaseHTTPRequestHandler):
 					self._respond(self.__sqlDb.query(execQuery))
 			except KeyError:
 				try:
+					#print("connection?")
 					# try to connect and do test query
 					connection = serialized['connection'][0]
 					if 'libraryVersion' in connection:
@@ -403,8 +473,11 @@ class S(BaseHTTPRequestHandler):
 						self._respond(makeJsonResponse("Version mismatch", "It is not allowed to use a mappDatabaseConnector with higher version than MpDatabase.",""))
 				except KeyError:
 					# try to disconnect
+					print("do_POST KeyError self.disconnect = {}".format(self.disconnect))
+					logging.debug("do_POST KeyError self.disconnect = {}".format(self.disconnect))
 					self._respond(self.__sqlDb.disconnect())
 				except Exception as ex:
+					print("### EXCEPTION connection")
 					if (args.sqlType == 'postgres'):
 						debug_print("PostgreSQL error:",str(ex))
 						self._respond(makeJsonResponse(ex.args[0], "", ""))
@@ -412,40 +485,54 @@ class S(BaseHTTPRequestHandler):
 						debug_print(ex.args[0],ex.args[1])
 						self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
 			except Exception as ex:
+				print("### EXCEPTION")
 				if (args.sqlType == 'postgres'):
 					debug_print("PostgreSQL error:",str(ex))
 					self._respond(makeJsonResponse(ex.args[0], "", ""))
 				else:
+					debug_print("PostgreSQL error:",str(ex))
 					debug_print(ex.args[0],ex.args[1])
 					self._respond(makeJsonResponse(ex.args[0], ex.args[1], ""))
-		
-def run(server_class=HTTPServer, handler_class=S, webServerPort=85):
+
+def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	if (args.httpTimeout < 10):
 		sys.exit("Timeout not valid. Please introduce a timeout higher than 10 seconds")
 	elif (args.httpTimeout >= 600):
 		print("Warning: In case the PLC got restarted while a connection between mapp Database and the script was active a timeout of {} seconds will pass before connection is established again.".format(args.httpTimeout))
 	handler_class.protocol_version = 'HTTP/1.1'
-	httpd = socketserver.TCPServer(("",webServerPort),handler_class)
-	print('Starting httpd at port ' + str(webServerPort))
-	print('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
+	#httpd = socketserver.TCPServer(("",webServerPort),handler_class)
+	httpd = server_class(('',webServerPort), handler_class)
+	httpd.allow_reuse_address = True
+	#httpd.daemon_threads = True
+	print()
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
 
-	###Merior: logging configuration
-	logging.basicConfig(filename='/home/br/single.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.DEBUG)
+	#logging configuration
+	logging.basicConfig(filename='/home/br/multi.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.INFO)
 	logging.info('Starting httpd at port ' + str(webServerPort))
 	logging.info('SQL server host ' + args.sqlHost + ':' + str(args.sqlPort))
 
-	#logging.debug('This message should go to the log file %s', str(args.sqlPort))
-	#logging.info('So should this')
-	#logging.warning('And this, too')
-	#logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
-	#logging.critical('Panic!')
+	logging.debug('This message should go to the log file %s', str(args.sqlPort))
+	logging.info('So should this')
+	logging.warning('And this, too')
+	logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+	logging.critical('Panic!')
 
+	try:
+		httpd.serve_forever()
+	except:
+		pass
+
+	print("{} Closing server".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
+	httpd.server_close()
+	print("{} Server stops".format(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S")))
 
 	# FIXME: line below sets up HTTPS server, but it is args.sqlType yet supported from a client side
 	# httpd.socket = ssl.wrap_socket (httpd.socket, certfile='./server.pem', server_side=True)
-	while True:
-		httpd.handle_request()
-	
+	#while True:
+	#	httpd.handle_request()
+
 if __name__ == "__main__":
 	import argparse
 	parser = argparse.ArgumentParser(
@@ -453,8 +540,8 @@ if __name__ == "__main__":
 		epilog='EXAMPLES:\n\n# start the script with default parameters (85, 127.0.0.1, 3306, mysql, 60)\n$ python mappDatabaseConnector.py\n\n# start the script with defined parameters (e.g. 86, 192.168.1.15, 58964, mssql, 30)\n$ python mappDatabaseConnector.py 86 \'192.168.1.15\' 58964 \'mssql\' 30\n\n# start the script with defined parameters (e.g. 86, 127.0.0.1, 5432, postgres, 60)\n$ python mappDatabaseConnector.py 86 \'127.0.0.1\' 5432 \'postgres\' 60 ',
 		formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('httpPort', type=str,
-					default='8081', const=1, nargs='?',
-					help='http server port (default: 8081)')
+					default='8080', const=1, nargs='?',
+					help='http server port (default: 8080)')
 	parser.add_argument('sqlHost', type=str,
 					default='127.0.0.1', const=1, nargs='?',
 					help='sql server host (default: 127.0.0.1)')

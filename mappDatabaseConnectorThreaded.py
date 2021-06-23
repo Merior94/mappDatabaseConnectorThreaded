@@ -313,34 +313,34 @@ class S(BaseHTTPRequestHandler):
 		self.disconnect = False
 		super().__init__(request, client_address, server)		
 		
-	#Override method to modify the message show in the console due to timeout
-	def handle_one_request(self):
-		try:
-			self.raw_requestline = self.rfile.readline(65537)
-			if len(self.raw_requestline) > 65536:
-				self.requestline = ''
-				self.request_version = ''
-				self.command = ''
-				self.send_error(414)
-				return
-			if not self.raw_requestline:
-				self.close_connection = 1
-				return
-			if not self.parse_request():
-				# An error code has been sent, just exit
-				return
-			mname = 'do_' + self.command
-			if not hasattr(self, mname):
-				self.send_error(501, "Unsupported method (%r)" % self.command)
-				return
-			method = getattr(self, mname)
-			method()
-			self.wfile.flush() #actually send the response if not already done.
-		except socketserver.socket.timeout as e:
-			self.disconnect = True
-			self.do_POST()
-			self.close_connection = 1
-			return
+##	#Override method to modify the message show in the console due to timeout
+##	def handle_one_request(self):
+##		try:
+##			self.raw_requestline = self.rfile.readline(65537)
+##			if len(self.raw_requestline) > 65536:
+##				self.requestline = ''
+##				self.request_version = ''
+##				self.command = ''
+##				self.send_error(414)
+##				return
+##			if not self.raw_requestline:
+##				self.close_connection = 1
+##				return
+##			if not self.parse_request():
+##				# An error code has been sent, just exit
+##				return
+##			mname = 'do_' + self.command
+##			if not hasattr(self, mname):
+##				self.send_error(501, "Unsupported method (%r)" % self.command)
+##				return
+##			method = getattr(self, mname)
+##			method()
+##			self.wfile.flush() #actually send the response if not already done.
+##		except socketserver.socket.timeout as e:
+##			self.disconnect = True
+##			self.do_POST()
+##			self.close_connection = 1
+##			return
 
 	#Override method to set a timeout
 	def setup(self):
@@ -489,20 +489,23 @@ def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	httpd = server_class(('',webServerPort), handler_class)
 	httpd.allow_reuse_address = True
 
-	print()
-	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
-	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
-
-        #logging configuration
-	logging.basicConfig(filename='home/br/multi.log', format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=logging.INFO)
+	#logging configuration
+	logging.basicConfig(filename=args.l, format='%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='w', level=args.verbose)
+	logging.info(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Logging to file: " + str(args.l))
 	logging.info(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
 	logging.info(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
 	
-##	logging.debug('debug')
-##	logging.info('info')
-##	logging.warning('warning')
-##	logging.error('error')
-##	logging.critical('critical')
+	print()
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Logging to file: " + str(args.l))
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
+	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
+
+	print(args.verbose)
+	logging.debug('debug')
+	logging.info('info')
+	logging.warning('warning')
+	logging.error('error')
+	logging.critical('critical')
 
 	try:
 		httpd.serve_forever()
@@ -527,8 +530,8 @@ if __name__ == "__main__":
 		epilog='EXAMPLES:\n\n# start the script with default parameters (85, 127.0.0.1, 3306, mysql, 60)\n$ python mappDatabaseConnector.py\n\n# start the script with defined parameters (e.g. 86, 192.168.1.15, 58964, mssql, 30)\n$ python mappDatabaseConnector.py 86 \'192.168.1.15\' 58964 \'mssql\' 30\n\n# start the script with defined parameters (e.g. 86, 127.0.0.1, 5432, postgres, 60)\n$ python mappDatabaseConnector.py 86 \'127.0.0.1\' 5432 \'postgres\' 60 ',
 		formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('httpPort', type=str,
-					default='8080', const=1, nargs='?',
-					help='http server port (default: 8080)')
+					default='85', const=1, nargs='?',
+					help='http server port (default: 85)')
 	parser.add_argument('sqlHost', type=str,
 					default='127.0.0.1', const=1, nargs='?',
 					help='sql server host (default: 127.0.0.1)')
@@ -544,8 +547,10 @@ if __name__ == "__main__":
 	parser.add_argument('--version', action='version',
 					version='%(prog)s {version}'.format(version=__version__))
 	parser.add_argument('-l', type=str,
-					const=1, nargs='?', default='',
+					const=1, nargs='?', default='mappDatabaseConnectorThreaded.log',
 					help='File name (full path) to log SQL response. File must be writable, data is overwritten')
+	parser.add_argument('--verbose', '-v', action='count', default=1)
 	args = parser.parse_args()
-
+	args.verbose = 30 - (10*args.verbose) if args.verbose > 0 else 0
+	
 	run(webServerPort=int(args.httpPort))

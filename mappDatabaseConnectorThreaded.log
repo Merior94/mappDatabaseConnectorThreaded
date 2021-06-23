@@ -1,0 +1,8 @@
+2021-06-23 11:02:50 INFO: 2021.06.23 11:02:50 Logging to file: mappDatabaseConnectorThreaded.log
+2021-06-23 11:02:50 INFO: 2021.06.23 11:02:50 Starting httpd at port 85
+2021-06-23 11:02:50 INFO: 2021.06.23 11:02:50 SQL server host 127.0.0.1:3306
+2021-06-23 11:02:50 DEBUG: debug
+2021-06-23 11:02:50 INFO: info
+2021-06-23 11:02:50 WARNING: warning
+2021-06-23 11:02:50 ERROR: error
+2021-06-23 11:02:50 CRITICAL: critical

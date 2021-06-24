@@ -500,12 +500,11 @@ def run(server_class=ThreadingHTTPServer, handler_class=S, webServerPort=85):
 	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " Starting httpd at port " + str(webServerPort))
 	print(datetime.datetime.today().strftime("%Y.%m.%d %H:%M:%S") + " SQL server host " + args.sqlHost + ":" + str(args.sqlPort))
 
-	print(args.verbose)
-	logging.debug('debug')
-	logging.info('info')
-	logging.warning('warning')
-	logging.error('error')
-	logging.critical('critical')
+	# logging.debug('debug')
+	# logging.info('info')
+	# logging.warning('warning')
+	# logging.error('error')
+	# logging.critical('critical')
 
 	try:
 		httpd.serve_forever()
